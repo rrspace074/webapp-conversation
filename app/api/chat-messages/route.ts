@@ -3,17 +3,19 @@ import axios from 'axios';
 
 export async function POST(request) {
     try {
-        // Get the data the frontend sent to this route
-        const body = await request.json();
-        const { query, user, conversation_id, fileId } = body; // Assume frontend sends the fileId
+        // WORKAROUND: Read required info from URL and body separately
+        const fileId = await request.text(); // Read the fileId as plain text from the body
+        const { searchParams } = new URL(request.url);
+        const query = searchParams.get('query');
+        const user = searchParams.get('user');
+        const conversation_id = searchParams.get('conversation_id');
 
+        // Validate that we received all the necessary parts
         if (!query || !user || !fileId) {
-            return NextResponse.json({ error: 'Missing required fields: query, user, fileId' }, { status: 400 });
+            const missing = [!query && 'query', !user && 'user', !fileId && 'fileId'].filter(Boolean).join(', ');
+            return NextResponse.json({ error: `Missing required fields: ${missing}` }, { status: 400 });
         }
 
-        // =================================================================
-        // STEP 2: Build the CORRECT payload for Dify's chat endpoint
-        // =================================================================
         const difyPayload = {
             inputs: {
                 // IMPORTANT: This variable name 'Pitch_Deck' must match the
@@ -21,12 +23,12 @@ export async function POST(request) {
                 Pitch_Deck: {
                     type: 'image',
                     transfer_method: 'local_file',
-                    upload_file_id: fileId, // Use the ID passed from the frontend
+                    upload_file_id: fileId, // Use the ID from the request body
                 },
             },
             query: query,
             user: user,
-            response_mode: 'streaming', // Or 'blocking'
+            response_mode: 'streaming',
             conversation_id: conversation_id || '',
         };
 
@@ -37,26 +39,22 @@ export async function POST(request) {
                 'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
                 'Content-Type': 'application/json',
             },
-            responseType: 'stream', // Keep this if you need streaming
+            responseType: 'stream',
         });
         
-        // If successful, you would stream the response back to the client
-        // For simplicity, this example assumes success, but you'll need to pipe the stream.
         return new Response(response.data, {
             headers: { 'Content-Type': 'text/event-stream' },
         });
 
     } catch (error) {
-        // THIS IS THE FIX FOR THE 500 ERROR
         console.error("--- AXIOS ERROR ---");
-        // This will log the specific error message from Dify, like "Invalid variable name"
-        console.error("Dify API Error Response:", error.response?.data);
+        const errorDetails = error.response?.data || error.message || 'No response data';
+        console.error("Dify API Error Response:", errorDetails);
         console.error("--- END AXIOS ERROR ---");
 
-        // Return a proper error response instead of crashing
         return NextResponse.json(
-            { error: 'Failed to communicate with Dify API.', details: error.response?.data || 'No response data' },
-            { status: 502 } // 502 is more accurate here (Bad Gateway)
+            { error: 'Failed to communicate with Dify API.', details: errorDetails },
+            { status: 502 }
         );
     }
 }
