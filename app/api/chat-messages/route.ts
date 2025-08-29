@@ -6,6 +6,7 @@ export async function POST(request: NextRequest) {
   const {
     inputs,
     query,
+    files,
     conversation_id: conversationId,
     response_mode: responseMode,
   } = body
